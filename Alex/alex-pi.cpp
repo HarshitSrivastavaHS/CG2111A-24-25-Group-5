@@ -8,6 +8,32 @@
 #include "serialize.h"
 #include "constants.h"
 
+// TERMIOS START
+#include <termios.h>
+#include <stdlib.h>
+#include <sys/time.h>
+
+#define COMMAND_INTERVAL 500 // milliseconds
+
+struct timeval lastSent, now;
+
+
+struct termios orig_termios;
+void disableRawMode() {
+	tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+}
+
+void enableRawMode() {
+	tcgetattr(STDIN_FILENO, &orig_termios);
+	atexit(disableRawMode);
+
+	struct termios raw = orig_termios;
+	raw.c_lflag &= ~(ICANON | ECHO); // Turn off canonical mode and echo
+	tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+}
+//TERMIOS END
+
+
 #define PORT_NAME			"/dev/ttyACM0"
 #define BAUD_RATE			B9600
 
@@ -193,36 +219,41 @@ void sendCommand(char command)
 
 	switch(command)
 	{
-		case 'f':
-		case 'F':
-			getParams(&commandPacket);
+		case 'w':
+		case 'W':
+			//getParams(&commandPacket);
+			commandPacket.params[0] = 2;
+			commandPacket.params[1] = 100;
 			commandPacket.command = COMMAND_FORWARD;
-			sendPacket(&commandPacket);
-			break;
-
-		case 'b':
-		case 'B':
-			getParams(&commandPacket);
-			commandPacket.command = COMMAND_REVERSE;
-			sendPacket(&commandPacket);
-			break;
-
-		case 'l':
-		case 'L':
-			getParams(&commandPacket);
-			commandPacket.command = COMMAND_TURN_LEFT;
-			sendPacket(&commandPacket);
-			break;
-
-		case 'r':
-		case 'R':
-			getParams(&commandPacket);
-			commandPacket.command = COMMAND_TURN_RIGHT;
 			sendPacket(&commandPacket);
 			break;
 
 		case 's':
 		case 'S':
+			commandPacket.params[0] = 2;
+			commandPacket.params[1] = 100;
+			commandPacket.command = COMMAND_REVERSE;
+			sendPacket(&commandPacket);
+			break;
+
+		case 'a':
+		case 'A':
+			commandPacket.params[0] = 20;
+			commandPacket.params[1] = 100;
+			commandPacket.command = COMMAND_TURN_LEFT;
+			sendPacket(&commandPacket);
+			break;
+
+		case 'd':
+		case 'D':
+			commandPacket.params[0] = 20;
+			commandPacket.params[1] = 100;
+			commandPacket.command = COMMAND_TURN_RIGHT;
+			sendPacket(&commandPacket);
+			break;
+
+		case 'l':
+		case 'L':
 			commandPacket.command = COMMAND_STOP;
 			sendPacket(&commandPacket);
 			break;
@@ -255,8 +286,8 @@ void sendCommand(char command)
 			commandPacket.command=COMMAND_CLOSE_CLAW;
 			sendPacket(&commandPacket);
 			break;
-		case 'a':
-		case 'A':
+		case 'b':
+		case 'B':
 			commandPacket.command=COMMAND_GET_COLOUR;
 			sendPacket(&commandPacket);
 			break;
@@ -288,7 +319,7 @@ int main()
 	helloPacket.packetType = PACKET_TYPE_HELLO;
 	sendPacket(&helloPacket);
 
-	while(!exitFlag)
+	/*while(!exitFlag)
 	{
 		char ch;
 		printf("Command (a=get colour, o=open claw, p=close claw, f=forward, b=reverse, l=turn left, r=turn right, s=stop, c=clear stats, g=get stats q=exit)\n");
@@ -298,7 +329,37 @@ int main()
 		flushInput();
 
 		sendCommand(ch);
-	}
+	}*/
+	
+	// TERMIOS AGAIN
+		enableRawMode(); // enable non-canonical mode
+
+	/*while(!exitFlag)
+	{
+		char ch;
+		printf("Command (a=get colour, o=open claw, p=close claw, f=forward, b=reverse, l=turn left, r=turn right, s=stop, c=clear stats, g=get stats q=exit)\n");
+		ch = getchar(); // no need to press Enter
+
+		sendCommand(ch);
+	}*/
+	gettimeofday(&lastSent, NULL);
+	while (!exitFlag)
+{
+    char ch = getchar(); // non-blocking read assumed
+
+    // Get current time
+    gettimeofday(&now, NULL);
+    long elapsed = (now.tv_sec - lastSent.tv_sec) * 1000 + (now.tv_usec - lastSent.tv_usec) / 1000;
+
+    if (elapsed >= COMMAND_INTERVAL)
+    {
+        sendCommand(ch);
+        lastSent = now;
+    }
+
+    usleep(10000); // 10ms delay to avoid 100% CPU
+}
+	//TERMIOS END
 
 	printf("Closing connection to Arduino.\n");
 	endSerial();
